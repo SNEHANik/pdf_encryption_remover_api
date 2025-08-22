@@ -3,3 +3,5 @@ uvicorn
 pikepdf
 python-multipart
 pdfplumber
+pandas 
+os
