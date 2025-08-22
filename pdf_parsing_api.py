@@ -1,18 +1,12 @@
-from fastapi import FastAPI, UploadFile, Form
-import pikepdf
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, File, Form, UploadFile
+import pdfplumber
 
 app = FastAPI()
 
 @app.post("/unlock")
-async def unlock(pdf: UploadFile, password: str = Form(...)):
-    # Save uploaded file
-    with open("temp.pdf", "wb") as f:
-        f.write(await pdf.read())
-
-    # Unlock with password
-    with pikepdf.open("temp.pdf", password=password) as pdf_file:
-        pdf_file.save("unlocked.pdf")
-
-    # Return unlocked file
-    return StreamingResponse(open("unlocked.pdf", "rb"), media_type="application/pdf")
+async def unlock(password: str = Form(...), pdf: UploadFile = File(...)):
+    with pdfplumber.open(pdf.file, password=password) as pdf_doc:
+        text = ""
+        for page in pdf_doc.pages:
+            text += page.extract_text() + "\n"
+    return {"text": text}
