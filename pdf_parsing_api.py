@@ -1,75 +1,40 @@
-# from fastapi import FastAPI, File, Form, UploadFile
-# import pdfplumber
-
-# app = FastAPI()
-
-# @app.post("/unlock")
-# async def unlock(password: str = Form(...), pdf: UploadFile = File(...)):
-#     with pdfplumber.open(pdf.file, password=password) as pdf_doc:
-#         text = ""
-#         for page in pdf_doc.pages:
-#             text += page.extract_text() + "\n"
-#     return {"text": text}
-
-
-from fastapi import FastAPI, UploadFile, File, Form
-import pandas as pd
-import pdfplumber
+from flask import Flask, request, send_file, jsonify
+import tempfile
+import pikepdf
 import os
 
-app = FastAPI()
+app = Flask(__name__)
 
-PDF_PASSWORD = "900001"  # default, can be overridden by request
+@app.route("/unlock", methods=["POST"])
+def unlock_pdf():
+    # Expect password + file
+    password = request.form.get("password")
+    file = request.files.get("file")
 
+    if not file or not password:
+        return jsonify({"error": "Missing file or password"}), 400
 
-# --- Dummy helpers (replace with your real ones) ---
-def extract_payment_date(text):
-    # TODO: replace with your regex logic
-    return "2025-08-22"
-
-def clean_dataframe(df):
-    # TODO: replace with your cleaning logic
-    return df
-
-def parse_text_to_dataframe(text):
-    # TODO: replace with your custom parsing logic
-    return pd.DataFrame({"Text": [text]})
-
-
-# --- Your original extraction function ---
-def extract_pdf_table_to_dataframe(file_path, password=PDF_PASSWORD):
     try:
-        with pdfplumber.open(file_path, password=password) as pdf:
-            page = pdf.pages[0]
-            text = page.extract_text()
-            tables = page.extract_tables()
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_in:
+            file.save(tmp_in.name)
+            input_path = tmp_in.name
 
-            payment_date = extract_payment_date(text)
+        output_path = input_path + "_unlocked.pdf"
 
-            if tables:
-                df = pd.DataFrame(tables[0][1:], columns=tables[0][0])
-                df = clean_dataframe(df)
-            else:
-                df = parse_text_to_dataframe(text)
+        # Unlock with pikepdf
+        with pikepdf.open(input_path, password=password) as pdf:
+            pdf.save(output_path)
 
-            df["Filename"] = os.path.basename(file_path)
-            df["Payment_Date"] = payment_date
-            return df
+        return send_file(output_path, as_attachment=True, download_name="unlocked.pdf")
 
     except Exception as e:
-        return pd.DataFrame({"Error": [str(e)]})
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            os.remove(input_path)
+            if os.path.exists(output_path):
+                os.remove(output_path)
+        except:
+            pass
 
-
-# --- API endpoint ---
-@app.post("/unlock")
-async def unlock(password: str = Form(...), pdf: UploadFile = File(...)):
-    # Save uploaded PDF temporarily
-    temp_path = f"/tmp/{pdf.filename}"
-    with open(temp_path, "wb") as f:
-        f.write(await pdf.read())
-
-    # Extract dataframe
-    df = extract_pdf_table_to_dataframe(temp_path, password)
-
-    # Convert dataframe to JSON and return
-    return {"data": df.to_dict(orient="records")}
