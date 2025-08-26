@@ -5,3 +5,6 @@ python-multipart
 pdfplumber
 pandas 
 os
+Flask
+pikepdf
+gunicorn
