@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, send_file
 import tempfile
 import pikepdf
 import os
@@ -6,35 +6,33 @@ import os
 app = Flask(__name__)
 
 @app.route("/unlock", methods=["POST"])
-def unlock_pdf():
-    # Expect password + file
+def unlock():
+    pdf_file = request.files.get("file")
     password = request.form.get("password")
-    file = request.files.get("file")
 
-    if not file or not password:
-        return jsonify({"error": "Missing file or password"}), 400
+    if not pdf_file or not password:
+        return {"error": "file and password are required"}, 400
 
-    try:
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_in:
-            file.save(tmp_in.name)
-            input_path = tmp_in.name
+    # Save uploaded PDF temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_in:
+        pdf_file.save(tmp_in.name)
+        tmp_in.flush()
 
-        output_path = input_path + "_unlocked.pdf"
-
-        # Unlock with pikepdf
-        with pikepdf.open(input_path, password=password) as pdf:
-            pdf.save(output_path)
-
-        return send_file(output_path, as_attachment=True, download_name="unlocked.pdf")
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
         try:
-            os.remove(input_path)
-            if os.path.exists(output_path):
-                os.remove(output_path)
-        except:
-            pass
+            # Unlock with pikepdf
+            with pikepdf.open(tmp_in.name, password=password) as pdf:
+                tmp_out = tmp_in.name.replace(".pdf", "_unlocked.pdf")
+                pdf.save(tmp_out)
 
+            return send_file(tmp_out, as_attachment=True, download_name="unlocked.pdf")
+
+        except Exception as e:
+            return {"error": str(e)}, 400
+        finally:
+            try:
+                os.remove(tmp_in.name)
+            except:
+                pass
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
