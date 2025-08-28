@@ -7,3 +7,4 @@ pandas
 Flask
 pikepdf
 gunicorn
+pypdf
