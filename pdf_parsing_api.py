@@ -1,37 +1,50 @@
-from flask import Flask, request, send_file
-import tempfile
-import pikepdf
+from fastapi import FastAPI, UploadFile, Form
+from pypdf import PdfReader
 import os
+import shutil
 
-app = Flask(__name__)
+app = FastAPI()
 
-@app.route("/")
-def home():
-    return {"message": "PDF Unlock API is running. Use POST /unlock with a file + password."}
+def decrypt_pdf(pdf_path, password):
+    reader = PdfReader(pdf_path)
 
-@app.route("/unlock", methods=["POST"])
-def unlock():
-    pdf_file = request.files.get("file")
-    password = request.form.get("password")
+    if reader.is_encrypted:
+        reader.decrypt(password)
 
-    if not pdf_file or not password:
-        return {"error": "file and password are required"}, 400
+    text = ""
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text += page_text + "\n"
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_in:
-        pdf_file.save(tmp_in.name)
-        tmp_in.flush()
+    # Save decrypted text file
+    base_name = os.path.splitext(pdf_path)[0]
+    txt_filename = f"{base_name}_decrypted.txt"
 
-        try:
-            with pikepdf.open(tmp_in.name, password=password) as pdf:
-                tmp_out = tmp_in.name.replace(".pdf", "_unlocked.pdf")
-                pdf.save(tmp_out)
+    with open(txt_filename, "w", encoding="utf-8") as f:
+        f.write(text)
 
-            return send_file(tmp_out, as_attachment=True, download_name="unlocked.pdf")
+    return txt_filename
 
-        except Exception as e:
-            return {"error": str(e)}, 400
-        finally:
-            try:
-                os.remove(tmp_in.name)
-            except:
-                pass
+@app.post("/decrypt")
+async def decrypt_endpoint(file: UploadFile, password: str = Form(...)):
+    # Save uploaded file
+    temp_pdf_path = file.filename
+    with open(temp_pdf_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    try:
+        txt_file = decrypt_pdf(temp_pdf_path, password)
+
+        # Read decrypted text back for API response
+        with open(txt_file, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        return {"decrypted_text": content}
+
+    finally:
+        # Clean up temp files
+        if os.path.exists(temp_pdf_path):
+            os.remove(temp_pdf_path)
+        if os.path.exists(txt_file):
+            os.remove(txt_file)
